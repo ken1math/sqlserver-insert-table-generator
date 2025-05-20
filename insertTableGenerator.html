@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>INSERT文ジェネレータ (SQL Server専用)</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    .note { background: #f9f9f9; border-left: 4px solid #2980b9; padding: 10px; margin-bottom: 20px; }
+    input, textarea, button, select { margin: 5px; }
+    table { border-collapse: collapse; margin-top: 10px; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 5px; text-align: left; }
+    textarea { width: 100%; height: 150px; }
+    h1, h2, h3 { color: #34495e; }
+    button { cursor: pointer; }
+  </style>
+</head>
+<body>
+
+  <h1>INSERT文ジェネレータ (SQL Server専用)</h1>
+  <div class="note">
+    <strong>注意：</strong><br>
+    ・本ツールは<strong>SQL Server専用</strong>の構文で生成します。<br>
+    ・生成されたSQLは必ずご自身でご確認のうえ、<strong>自己責任</strong>でご利用ください。
+  </div>
+
+  <h2>ステップ 1: テーブル名と列定義</h2>
+  <label>テーブル名: <input type="text" id="tableName" placeholder="例: Users"></label>
+
+  <h3>列定義</h3>
+  <table id="columnsTable">
+    <thead>
+      <tr><th>列名</th><th>型</th><th>削除</th></tr>
+    </thead>
+    <tbody id="columnsBody"></tbody>
+  </table>
+  <button onclick="addColumn()">列を追加</button>
+  <button onclick="renderValueInputs()">ステップ2: 値入力欄を生成</button>
+
+  <h2>ステップ 2: 値の入力</h2>
+  <div id="manualInput" style="display:none;">
+    <table id="valuesTable">
+      <thead id="valuesHead"></thead>
+      <tbody id="valuesBody"></tbody>
+    </table>
+    <button onclick="addValueRow()">行を追加</button>
+  </div>
+
+  <h3>または: 一括貼り付け (タブ区切り, 1行目:列名, 2行目:型, 3行目以降:データ)</h3>
+  <textarea id="bulkInput" placeholder="例：\nname\tage\tbirthday\nVARCHAR\tINT\tDATE\nalice\t30\t2025-01-01\nbob\t25\t2025-02-14"></textarea><br>
+
+  <h2>ステップ 3: INSERT文を生成</h2>
+  <textarea id="output" readonly placeholder="ここに INSERT 文が表示されます"></textarea><br>
+  <button onclick="generateSQL()">INSERT文を生成</button>
+
+  <script>
+    const TYPE_OPTIONS = ['INT','BIGINT','SMALLINT','TINYINT','BIT','DECIMAL','FLOAT','NUMERIC','REAL','MONEY','SMALLMONEY','DATETIME','DATE','TIME','CHAR','NCHAR','VARCHAR','NVARCHAR','TEXT','UNIQUEIDENTIFIER'];
+    const NO_QUOTE_TYPES = ['INT','BIGINT','SMALLINT','TINYINT','BIT','DECIMAL','FLOAT','NUMERIC','REAL','MONEY','SMALLMONEY'];
+
+    function addColumn(name = '', type = 'VARCHAR') {
+      const tbody = document.getElementById('columnsBody');
+      const row = document.createElement('tr');
+      const options = TYPE_OPTIONS.map(t => <option value="${t}" ${t===type?'selected':''}>${t}</option>).join('');
+      row.innerHTML = 
+        <td><input type="text" class="colName" value="${name}" placeholder="例: name"></td>
+        <td><select class="colType">${options}</select></td>
+        <td><button onclick="removeRow(this)">削除</button></td>
+      ;
+      tbody.appendChild(row);
+    }
+    function removeRow(btn) { btn.closest('tr').remove(); }
+
+    function renderValueInputs() {
+      const cols = Array.from(document.querySelectorAll('.colName')).map(i => i.value.trim()).filter(n => n);
+      if (!cols.length) { alert('まず列を定義してください。'); return; }
+      const head = document.getElementById('valuesHead');
+      head.innerHTML = '<tr>' + cols.map(c=><th>${c}</th>).join('') + '<th>削除</th></tr>';
+      document.getElementById('valuesBody').innerHTML = '';
+      document.getElementById('manualInput').style.display = 'block';
+      addValueRow();
+    }
+    function addValueRow() {
+      const colCount = document.querySelectorAll('#valuesHead th').length - 1;
+      const row = document.createElement('tr');
+      let cells = '';
+      for (let i = 0; i < colCount; i++) {
+        cells += <td><input type="text" class="valInput" placeholder="値を入力"></td>;
+      }
+      cells += '<td><button onclick="removeRow(this)">削除</button></td>';
+      row.innerHTML = cells;
+      document.getElementById('valuesBody').appendChild(row);
+    }
+
+    function generateSQL() {
+      const tableName = document.getElementById('tableName').value.trim();
+      if (!tableName) { alert('テーブル名を入力してください。'); return; }
+
+      const sqls = [];
+      const bulk = document.getElementById('bulkInput').value.trim();
+
+      if (bulk) {
+        const lines = bulk.split('\n').map(l => l.trim()).filter(l => l);
+        if (lines.length >= 3) {
+          // 1行目: 列名, 2行目: 型
+          const colNames = lines[0].split('\t').map(s=>s.trim());
+          const colTypes = lines[1].split('\t').map(s=>s.trim().toUpperCase());
+          if (colNames.length !== colTypes.length) { alert('列名と型の数が一致しません。'); return; }
+          const columns = colNames.map((n,i) => ({ name: n, type: colTypes[i] }));
+          // UI更新
+          const tbody = document.getElementById('columnsBody'); tbody.innerHTML = '';
+          columns.forEach(c => addColumn(c.name, c.type));
+          // データ行
+          for (let i = 2; i < lines.length; i++) {
+            let parts = lines[i].split('\t');
+            // 足りないセルは空文字で埋める
+            while (parts.length < columns.length) parts.push('');
+            const vals = parts.map((p,idx)=>formatVal(p, columns[idx].type));
+            sqls.push(makeInsert(tableName, columns, vals));
+          }
+          document.getElementById('output').value = sqls.join('\n');
+          return;
+        }
+      }
+
+      // 手動入力モード
+      const colElems = Array.from(document.querySelectorAll('#columnsBody tr'));
+      if (!colElems.length) { alert('列を定義してください。'); return; }
+      const columns = colElems.map(r => ({ name: r.querySelector('.colName').value.trim(), type: r.querySelector('.colType').value })).filter(c=>c.name);
+      document.querySelectorAll('#valuesBody tr').forEach(r => {
+        const inputs = Array.from(r.querySelectorAll('.valInput'));
+        // 空セルは '' にして formatVal で NULL に
+        const parts = inputs.map(i => i.value);
+        // パディング不要：手動入力は欄が揃っている
+        const vals = parts.map((p,idx)=>formatVal(p, columns[idx].type));
+        sqls.push(makeInsert(tableName, columns, vals));
+      });
+
+      if (!sqls.length) { alert('データを入力または貼り付けしてください。'); return; }
+      document.getElementById('output').value = sqls.join('\n');
+    }
+
+    function formatVal(raw, type) {
+      const t = (raw||'').trim();
+      if (t === '' || t.toUpperCase()==='NULL') return 'NULL';
+      if (NO_QUOTE_TYPES.includes(type.toUpperCase())) return t;
+      return '${t.replace(/'/g,"''")}';
+    }
+
+    function makeInsert(tbl, cols, vals) {
+      const names = cols.map(c=>[${c.name}]).join(', ');
+      return INSERT INTO [${tbl}] (${names}) VALUES (${vals.join(', ')});;
+    }
+
+    window.onload = () => addColumn();
+  </script>
+</body>
+</html>
+
+
