@@ -1,0 +1,1 @@
+SQL Server用のCREATE TABLE文を生成するWebツール
