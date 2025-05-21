@@ -59,12 +59,12 @@
     function addColumn(name = '', type = 'VARCHAR') {
       const tbody = document.getElementById('columnsBody');
       const row = document.createElement('tr');
-      const options = TYPE_OPTIONS.map(t => <option value="${t}" ${t===type?'selected':''}>${t}</option>).join('');
-      row.innerHTML = 
+      const options = TYPE_OPTIONS.map(t => `<option value="${t}" ${t===type?'selected':''}>${t}</option>`).join('');
+      row.innerHTML = `
         <td><input type="text" class="colName" value="${name}" placeholder="例: name"></td>
         <td><select class="colType">${options}</select></td>
         <td><button onclick="removeRow(this)">削除</button></td>
-      ;
+      `;
       tbody.appendChild(row);
     }
     function removeRow(btn) { btn.closest('tr').remove(); }
@@ -73,7 +73,7 @@
       const cols = Array.from(document.querySelectorAll('.colName')).map(i => i.value.trim()).filter(n => n);
       if (!cols.length) { alert('まず列を定義してください。'); return; }
       const head = document.getElementById('valuesHead');
-      head.innerHTML = '<tr>' + cols.map(c=><th>${c}</th>).join('') + '<th>削除</th></tr>';
+      head.innerHTML = '<tr>' + cols.map(c=>`<th>${c}</th>`).join('') + '<th>削除</th></tr>';
       document.getElementById('valuesBody').innerHTML = '';
       document.getElementById('manualInput').style.display = 'block';
       addValueRow();
@@ -83,7 +83,7 @@
       const row = document.createElement('tr');
       let cells = '';
       for (let i = 0; i < colCount; i++) {
-        cells += <td><input type="text" class="valInput" placeholder="値を入力"></td>;
+        cells += `<td><input type="text" class="valInput" placeholder="値を入力"></td>`;
       }
       cells += '<td><button onclick="removeRow(this)">削除</button></td>';
       row.innerHTML = cells;
@@ -142,17 +142,15 @@
       const t = (raw||'').trim();
       if (t === '' || t.toUpperCase()==='NULL') return 'NULL';
       if (NO_QUOTE_TYPES.includes(type.toUpperCase())) return t;
-      return '${t.replace(/'/g,"''")}';
+      return `'${t.replace(/'/g,"''")}'`;
     }
 
     function makeInsert(tbl, cols, vals) {
-      const names = cols.map(c=>[${c.name}]).join(', ');
-      return INSERT INTO [${tbl}] (${names}) VALUES (${vals.join(', ')});;
+      const names = cols.map(c=>`[${c.name}]`).join(', ');
+      return `INSERT INTO [${tbl}] (${names}) VALUES (${vals.join(', ')});`;
     }
 
     window.onload = () => addColumn();
   </script>
 </body>
 </html>
-
-
